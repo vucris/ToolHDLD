@@ -1,0 +1,234 @@
+2026-08-22 09:29:36,685 | ERROR | Print failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 470, in print_pdf
+    rc = win32api.ShellExecute(0, "printto", str(pdf_path.resolve()), f'"{printer}"', str(pdf_path.parent), 0)
+pywintypes.error: (31, 'ShellExecute', 'A device attached to the system is not functioning.')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 881, in print_master
+    print_pdf(self.master_pdf, printer)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 474, in print_pdf
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+RuntimeError: Khong tim thay SumatraPDF va Windows PDF handler khong in duoc. De in silent on dinh, cai SumatraPDF hoac dat SumatraPDF.exe canh Tool.
+(31, 'ShellExecute', 'A device attached to the system is not functioning.')
+2026-08-22 09:31:10,154 | ERROR | Print failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 470, in print_pdf
+    rc = win32api.ShellExecute(0, "printto", str(pdf_path.resolve()), f'"{printer}"', str(pdf_path.parent), 0)
+pywintypes.error: (31, 'ShellExecute', 'A device attached to the system is not functioning.')
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 881, in print_master
+    print_pdf(self.master_pdf, printer)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 474, in print_pdf
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+RuntimeError: Khong tim thay SumatraPDF va Windows PDF handler khong in duoc. De in silent on dinh, cai SumatraPDF hoac dat SumatraPDF.exe canh Tool.
+(31, 'ShellExecute', 'A device attached to the system is not functioning.')
+2026-08-22 10:20:51,320 | ERROR | Generation failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 427, in generate_contracts_word_com
+    out_pdf.unlink()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Users\COM\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py", line 1042, in unlink
+    os.unlink(self)
+    ~~~~~~~~~^^^^^^
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'E:\\ToolHDLD\\toolprint\\OUTPUT\\PDF\\001_NV001_TRAN_LONG_VU.pdf'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 618, in run
+    pdfs = generate_contracts_word_com(
+        self.employees, self.template, word_dir, pdf_dir, progress=cb
+    )
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 468, in generate_contracts_word_com
+    raise RuntimeError(
+        "Khong the tao hop dong bang Microsoft Word.\n" + str(exc)
+    ) from exc
+RuntimeError: Khong the tao hop dong bang Microsoft Word.
+[WinError 32] The process cannot access the file because it is being used by another process: 'E:\\ToolHDLD\\toolprint\\OUTPUT\\PDF\\001_NV001_TRAN_LONG_VU.pdf'
+2026-08-22 10:20:58,521 | ERROR | Generation failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 427, in generate_contracts_word_com
+    out_pdf.unlink()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Users\COM\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py", line 1042, in unlink
+    os.unlink(self)
+    ~~~~~~~~~^^^^^^
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'E:\\ToolHDLD\\toolprint\\OUTPUT\\PDF\\001_NV001_TRAN_LONG_VU.pdf'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 618, in run
+    pdfs = generate_contracts_word_com(
+        self.employees, self.template, word_dir, pdf_dir, progress=cb
+    )
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 468, in generate_contracts_word_com
+    raise RuntimeError(
+        "Khong the tao hop dong bang Microsoft Word.\n" + str(exc)
+    ) from exc
+RuntimeError: Khong the tao hop dong bang Microsoft Word.
+[WinError 32] The process cannot access the file because it is being used by another process: 'E:\\ToolHDLD\\toolprint\\OUTPUT\\PDF\\001_NV001_TRAN_LONG_VU.pdf'
+2026-08-22 10:21:16,097 | ERROR | Generation failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 448, in generate_contracts_word_com
+    raise ValueError(
+    ...<3 lines>...
+    )
+ValueError: Khong thay duoc du lieu Excel vao Word. Placeholder con lai: {{CCCD}}, {{CDANH}}, {{DCTT}}, {{DENNGAY}}, {{DT}}, {{GT}}, {{LOAIHD}}, {{LUONG}}, {{MST}}, {{NCAP}}, {{NCC}}, {{NS}}, {{SDT}}, {{TEN}}, {{THANG}}, {{TUNGAY}}. Hay kiem tra MAU_HDLD_TEMPLATE.docx.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 618, in run
+    pdfs = generate_contracts_word_com(
+        self.employees, self.template, word_dir, pdf_dir, progress=cb
+    )
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 468, in generate_contracts_word_com
+    raise RuntimeError(
+        "Khong the tao hop dong bang Microsoft Word.\n" + str(exc)
+    ) from exc
+RuntimeError: Khong the tao hop dong bang Microsoft Word.
+Khong thay duoc du lieu Excel vao Word. Placeholder con lai: {{CCCD}}, {{CDANH}}, {{DCTT}}, {{DENNGAY}}, {{DT}}, {{GT}}, {{LOAIHD}}, {{LUONG}}, {{MST}}, {{NCAP}}, {{NCC}}, {{NS}}, {{SDT}}, {{TEN}}, {{THANG}}, {{TUNGAY}}. Hay kiem tra MAU_HDLD_TEMPLATE.docx.
+2026-08-22 10:24:24,204 | ERROR | Generation failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 448, in generate_contracts_word_com
+    raise ValueError(
+    ...<3 lines>...
+    )
+ValueError: Khong thay duoc du lieu Excel vao Word. Placeholder con lai: {{CCCD}}, {{CDANH}}, {{DCTT}}, {{DENNGAY}}, {{DT}}, {{GT}}, {{LOAIHD}}, {{LUONG}}, {{MST}}, {{NCAP}}, {{NCC}}, {{NS}}, {{SDT}}, {{TEN}}, {{THANG}}, {{TUNGAY}}. Hay kiem tra MAU_HDLD_TEMPLATE.docx.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 618, in run
+    pdfs = generate_contracts_word_com(
+        self.employees, self.template, word_dir, pdf_dir, progress=cb
+    )
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 468, in generate_contracts_word_com
+    raise RuntimeError(
+        "Khong the tao hop dong bang Microsoft Word.\n" + str(exc)
+    ) from exc
+RuntimeError: Khong the tao hop dong bang Microsoft Word.
+Khong thay duoc du lieu Excel vao Word. Placeholder con lai: {{CCCD}}, {{CDANH}}, {{DCTT}}, {{DENNGAY}}, {{DT}}, {{GT}}, {{LOAIHD}}, {{LUONG}}, {{MST}}, {{NCAP}}, {{NCC}}, {{NS}}, {{SDT}}, {{TEN}}, {{THANG}}, {{TUNGAY}}. Hay kiem tra MAU_HDLD_TEMPLATE.docx.
+2026-08-22 10:25:28,561 | ERROR | Generation failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 448, in generate_contracts_word_com
+    raise ValueError(
+    ...<3 lines>...
+    )
+ValueError: Khong thay duoc du lieu Excel vao Word. Placeholder con lai: {{CCCD}}, {{CDANH}}, {{DCTT}}, {{DENNGAY}}, {{DT}}, {{GT}}, {{LOAIHD}}, {{LUONG}}, {{MST}}, {{NCAP}}, {{NCC}}, {{NS}}, {{SDT}}, {{TEN}}, {{THANG}}, {{TUNGAY}}. Hay kiem tra MAU_HDLD_TEMPLATE.docx.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 618, in run
+    pdfs = generate_contracts_word_com(
+        self.employees, self.template, word_dir, pdf_dir, progress=cb
+    )
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 468, in generate_contracts_word_com
+    raise RuntimeError(
+        "Khong the tao hop dong bang Microsoft Word.\n" + str(exc)
+    ) from exc
+RuntimeError: Khong the tao hop dong bang Microsoft Word.
+Khong thay duoc du lieu Excel vao Word. Placeholder con lai: {{CCCD}}, {{CDANH}}, {{DCTT}}, {{DENNGAY}}, {{DT}}, {{GT}}, {{LOAIHD}}, {{LUONG}}, {{MST}}, {{NCAP}}, {{NCC}}, {{NS}}, {{SDT}}, {{TEN}}, {{THANG}}, {{TUNGAY}}. Hay kiem tra MAU_HDLD_TEMPLATE.docx.
+2026-08-22 10:33:00,531 | ERROR | Generation failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 536, in generate_contracts_word_com
+    out_pdf.unlink()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Users\COM\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py", line 1042, in unlink
+    os.unlink(self)
+    ~~~~~~~~~^^^^^^
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'E:\\ToolHDLD\\toolprint\\OUTPUT\\PDF\\001_NV001_TRAN_LONG_VU.pdf'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 795, in run
+    pdfs = generate_contracts_word_com(
+        self.employees, self.template, word_dir, pdf_dir, progress=cb
+    )
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 598, in generate_contracts_word_com
+    raise RuntimeError(
+        "Khong the tao hop dong bang Microsoft Word.\n" + str(exc)
+    ) from exc
+RuntimeError: Khong the tao hop dong bang Microsoft Word.
+[WinError 32] The process cannot access the file because it is being used by another process: 'E:\\ToolHDLD\\toolprint\\OUTPUT\\PDF\\001_NV001_TRAN_LONG_VU.pdf'
+2026-08-22 11:06:24,649 | ERROR | Generation failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 645, in generate_contracts_word_com
+    out_pdf.unlink()
+    ~~~~~~~~~~~~~~^^
+  File "C:\Users\COM\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py", line 1042, in unlink
+    os.unlink(self)
+    ~~~~~~~~~^^^^^^
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'E:\\ToolHDLD\\toolprint\\OUTPUT\\PDF\\001_NV001_TRAN_LONG_VU.pdf'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 904, in run
+    pdfs = generate_contracts_word_com(
+        self.employees, self.template, word_dir, pdf_dir, progress=cb
+    )
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 707, in generate_contracts_word_com
+    raise RuntimeError(
+        "Khong the tao hop dong bang Microsoft Word.\n" + str(exc)
+    ) from exc
+RuntimeError: Khong the tao hop dong bang Microsoft Word.
+[WinError 32] The process cannot access the file because it is being used by another process: 'E:\\ToolHDLD\\toolprint\\OUTPUT\\PDF\\001_NV001_TRAN_LONG_VU.pdf'
+2026-08-22 13:27:40,827 | ERROR | Generation failed
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 743, in generate_contracts_word_com
+    doc = word.Documents.Open(
+          ^^^^^^^^^^^^^^
+  File "C:\Users\COM\AppData\Local\Programs\Python\Python314\Lib\site-packages\win32com\client\dynamic.py", line 620, in __getattr__
+    ret = self._oleobj_.Invoke(retEntry.dispid, 0, invoke_type, 1)
+pywintypes.com_error: (-2147023170, 'The remote procedure call failed.', None, None)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 977, in run
+    pdfs = generate_contracts_word_com(
+        self.employees, self.template, word_dir, pdf_dir, progress=cb
+    )
+  File "E:\ToolHDLD\toolprint\TL_Contract_Tool.py", line 780, in generate_contracts_word_com
+    raise RuntimeError(
+        "Khong the tao hop dong bang Microsoft Word.\n" + str(exc)
+    ) from exc
+RuntimeError: Khong the tao hop dong bang Microsoft Word.
+(-2147023170, 'The remote procedure call failed.', None, None)
+2026-08-22 14:09:47,649 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG VŨ
+2026-08-22 14:09:48,676 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG A
+2026-08-22 14:09:49,637 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG B
+2026-08-22 14:09:50,616 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG C
+2026-08-22 14:09:51,588 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG D
+2026-08-22 14:09:52,555 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG F
+2026-08-22 14:09:53,515 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG E
+2026-08-22 14:09:54,479 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG H
+2026-08-22 14:09:55,434 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG H
+2026-08-22 14:19:05,360 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG VŨ
+2026-08-22 14:19:06,412 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG A
+2026-08-22 14:19:07,481 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG B
+2026-08-22 14:19:08,502 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG C
+2026-08-22 14:19:09,596 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG D
+2026-08-22 14:19:10,597 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG F
+2026-08-22 14:19:11,560 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG E
+2026-08-22 14:19:12,649 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG H
+2026-08-22 14:19:13,635 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG H
+2026-08-22 15:08:32,226 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG VŨ
+2026-08-24 21:54:11,007 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG VŨ
+2026-08-24 22:00:49,288 | INFO | Da bo 1 trang trang cuoi PDF cua TRẦN LONG VŨ

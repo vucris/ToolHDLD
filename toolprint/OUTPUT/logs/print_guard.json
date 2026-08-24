@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "jobs": {
+    "fb9d2e7cf4832aad855e279d99a21054d398ca5ed0637f3f72215fd055aa6686": {
+      "status": "SENT",
+      "printer": "TOSHIBA e-STUDIO7518A-13416617",
+      "batch": "Lô tùy chọn (1 NV)",
+      "contracts": 1,
+      "copies": 1,
+      "pages": 4,
+      "master_pdf": "E:\\ToolHDLD\\toolprint\\OUTPUT\\MASTER\\PRINT_LO_TUY_CHON_20260822_141928_004591.pdf",
+      "master_sha256": "759dbe32b7bb5247434f931604fd5a22e40e3ea6695b8a11501cad7c131cfe9c",
+      "attempt": 1,
+      "updated_at": "2026-08-22 14:19:37"
+    },
+    "a24bd5bdb61c6b91a0f6a9d69b2c9708d1cea3c288a179e275b6353448b6cdfc": {
+      "status": "SENT",
+      "printer": "TOSHIBA e-STUDIO7518A-13416617",
+      "batch": "Lô 1/1",
+      "contracts": 1,
+      "copies": 1,
+      "pages": 4,
+      "master_pdf": "E:\\ToolHDLD\\toolprint\\OUTPUT\\MASTER\\PRINT_LO_01_20260822_150856_565925.pdf",
+      "master_sha256": "59ba4524aa94ded9ef821a5f84bb7b8da8e680644b3f30cc1bb4dc56a018468c",
+      "attempt": 1,
+      "updated_at": "2026-08-22 15:08:59"
+    }
+  }
+}

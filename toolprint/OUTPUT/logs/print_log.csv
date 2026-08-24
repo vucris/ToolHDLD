@@ -1,0 +1,9 @@
+﻿timestamp,printer,contracts,copies,total_pages,master_pdf,status,error
+2026-08-22 09:29:36,TOSHIBA e-STUDIO7518A-13416617,1,2,10,E:\ToolHDLD\toolprint\OUTPUT\MASTER\PRINT_MASTER_20260822_092931.pdf,ERROR,"Khong tim thay SumatraPDF va Windows PDF handler khong in duoc. De in silent on dinh, cai SumatraPDF hoac dat SumatraPDF.exe canh Tool.
+(31, 'ShellExecute', 'A device attached to the system is not functioning.')"
+2026-08-22 09:31:10,TOSHIBA e-STUDIO7518A-13416617,1,2,10,E:\ToolHDLD\toolprint\OUTPUT\MASTER\PRINT_MASTER_20260822_093106.pdf,ERROR,"Khong tim thay SumatraPDF va Windows PDF handler khong in duoc. De in silent on dinh, cai SumatraPDF hoac dat SumatraPDF.exe canh Tool.
+(31, 'ShellExecute', 'A device attached to the system is not functioning.')"
+2026-08-22 09:32:54,TOSHIBA e-STUDIO7518A-13416617,1,2,10,E:\ToolHDLD\toolprint\OUTPUT\MASTER\PRINT_MASTER_20260822_093246.pdf,SENT,
+2026-08-22 11:07:04,TOSHIBA e-STUDIO7518A-13416617,1,1,6,E:\ToolHDLD\toolprint\OUTPUT\MASTER\PRINT_MASTER_20260822_110655.pdf,SENT,
+2026-08-22 14:19:37,TOSHIBA e-STUDIO7518A-13416617,1,1,4,E:\ToolHDLD\toolprint\OUTPUT\MASTER\PRINT_LO_TUY_CHON_20260822_141928_004591.pdf,SENT,
+2026-08-22 15:08:59,TOSHIBA e-STUDIO7518A-13416617,1,1,4,E:\ToolHDLD\toolprint\OUTPUT\MASTER\PRINT_LO_01_20260822_150856_565925.pdf,SENT,

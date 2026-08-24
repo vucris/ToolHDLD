@@ -1,0 +1,9 @@
+{
+  "excel": "E:\\ToolHDLD\\toolprint\\DANH_SACH_HDLD_MAU_CAP_NHAT.xlsx",
+  "template": "E:\\ToolHDLD\\toolprint\\MAU_HDLD_TEMPLATE.docx",
+  "output": "E:\\ToolHDLD\\toolprint\\OUTPUT",
+  "copies": 1,
+  "printer": "TOSHIBA e-STUDIO7518A-13416617",
+  "duplex": true,
+  "batch_size": 25
+}
