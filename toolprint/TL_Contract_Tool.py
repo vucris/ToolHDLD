@@ -72,9 +72,11 @@ EXPECTED_COLUMNS = [
 REQUIRED_FIELDS = [
     "STT", "MA_NV", "HO_TEN", "NGAY_SINH", "GIOI_TINH",
     "DIA_CHI_THUONG_TRU", "CCCD", "NGAY_CAP_CCCD", "NOI_CAP_CCCD",
-    "CHUC_DANH", "LOAI_HOP_DONG", "THOI_HAN_THANG", "TU_NGAY", "DEN_NGAY",
+    "CHUC_DANH", "LOAI_HOP_DONG", "TU_NGAY",
     "MUC_LUONG_CHINH", "SO_HOP_DONG"
 ]
+
+CONDITIONAL_TERM_FIELDS = ("THOI_HAN_THANG", "DEN_NGAY")
 
 # Placeholder ngan de template khong bi thay doi page-break/bocuc.
 PLACEHOLDER_MAP = {
@@ -176,6 +178,16 @@ def text_value(value: Any) -> str:
     return str(value).strip()
 
 
+def is_indefinite_contract(value: Any) -> bool:
+    """Recognize 'hợp đồng không xác định thời hạn' regardless of accents/case."""
+    normalized = unicodedata.normalize("NFD", text_value(value))
+    normalized = "".join(
+        char for char in normalized if unicodedata.category(char) != "Mn"
+    ).replace("đ", "d").replace("Đ", "D").casefold()
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return "khong xac dinh thoi han" in normalized
+
+
 def format_date(value: Any) -> str:
     if value in (None, ""):
         return ""
@@ -209,6 +221,23 @@ def format_money(value: Any) -> str:
         return f"{number:,.0f}".replace(",", ".")
     except Exception:
         return str(value).strip()
+
+
+def salutation_from_gender(value: Any) -> str:
+    """Return the contract salutation derived from Excel column GIOI_TINH (F)."""
+    raw = text_value(value)
+    normalized = unicodedata.normalize("NFD", raw)
+    normalized = "".join(
+        char for char in normalized if unicodedata.category(char) != "Mn"
+    ).strip().casefold()
+
+    if normalized in {"nam", "male"}:
+        return "ÔNG"
+    if normalized in {"nu", "female"}:
+        return "BÀ"
+    raise ValueError(
+        f"Giới tính '{raw}' không hợp lệ. Cột GIOI_TINH (F) phải là Nam hoặc Nữ."
+    )
 
 
 def sanitize_filename(text: str) -> str:
@@ -330,7 +359,10 @@ def read_employees(excel_path: Path) -> List[Employee]:
                 data=data,
                 selected=is_selected(data.get("CHON")),
             )
-            missing = [field for field in REQUIRED_FIELDS if data.get(field) in (None, "")]
+            required_fields = list(REQUIRED_FIELDS)
+            if not is_indefinite_contract(data.get("LOAI_HOP_DONG")):
+                required_fields.extend(CONDITIONAL_TERM_FIELDS)
+            missing = [field for field in required_fields if data.get(field) in (None, "")]
             if missing:
                 emp.valid = False
                 emp.error = "Thieu: " + ", ".join(missing)
@@ -384,6 +416,7 @@ def replacement_values(emp: Employee) -> Dict[str, str]:
                 continue
     return {
         "{{TEN}}": text_value(d.get("HO_TEN")),
+        "{{XUNGHO}}": salutation_from_gender(d.get("GIOI_TINH")),
         "{{NS}}": format_date(d.get("NGAY_SINH")),
         "{{GT}}": text_value(d.get("GIOI_TINH")),
         "{{DT}}": text_value(d.get("DAN_TOC")),
@@ -550,6 +583,7 @@ def create_contract_docx(template_path: Path, emp: Employee, output_docx: Path) 
     values = replacement_values(emp)
     found = {token: False for token in PLACEHOLDER_MAP}
     literal_replacements = {
+        "ÔNG/BÀ": (values["{{XUNGHO}}"], "Cách xưng hô theo giới tính"),
         "Số: ......./202..../HĐLĐ-TLNT": (
             f"Số: {values['{{SOHD}}']}", "Số hợp đồng"
         ),
@@ -562,6 +596,13 @@ def create_contract_docx(template_path: Path, emp: Employee, output_docx: Path) 
     }
     literal_found = {source: False for source in literal_replacements}
     for paragraph in iter_all_paragraphs(doc):
+        if is_indefinite_contract(emp.data.get("LOAI_HOP_DONG")):
+            # Hợp đồng không xác định thời hạn chỉ có ngày bắt đầu; không đọc
+            # THOI_HAN_THANG hoặc DEN_NGAY và không để lại dấu câu thừa.
+            indefinite_term = "{{THANG}} tháng, từ ngày {{TUNGAY}} đến ngày {{DENNGAY}}"
+            if replace_token_in_paragraph(paragraph, indefinite_term, "từ ngày {{TUNGAY}}"):
+                found["{{THANG}}"] = True
+                found["{{DENNGAY}}"] = True
         # Mẫu Word gốc được giữ nguyên. Hai vùng dấu chấm được thay trực tiếp
         # trong bản DOCX sinh ra, không cần sửa/chèn placeholder vào template.
         for source, (replacement, _label) in literal_replacements.items():

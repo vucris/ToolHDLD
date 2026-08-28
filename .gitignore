@@ -1,0 +1,26 @@
+# Python cache and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Generated contracts and logs
+OUTPUT/
+
+# Local machine configuration
+tool_config.json
+
+# Office source data, templates, and temporary lock files
+*.xlsx
+*.xls
+*.docx
+~$*
+
+# Installers and binaries
+*.exe
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
