@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import load_workbook
 from docx import Document
+from docx.shared import Pt
 from pypdf import PdfReader, PdfWriter
 
 try:
@@ -56,18 +57,40 @@ DEFAULT_OUTPUT = BASE_DIR / "OUTPUT"
 DEFAULT_BATCH_SIZE = 25
 MAX_BATCH_SIZE = 25
 MAX_PRINT_JOB_PAGES = 100
+ESTIMATED_PAGES_PER_CONTRACT = 4
 PRINT_GUARD_FILENAME = "print_guard.json"
+# Tăng phiên bản khi nội dung/bố cục hợp đồng sinh ra thay đổi. Nhờ vậy một
+# PDF đã sửa nội dung không bị nhầm với bản cũ từng gửi in, nhưng chính bản
+# định dạng mới vẫn được khóa chống in trùng sau lần gửi đầu tiên.
+PRINT_JOB_FORMAT_VERSION = 11
 TABLE_VISIBLE_ROWS = 10
 TABLE_ROW_HEIGHT = 28
+
+# Một template duy nhất; địa chỉ Bên A được quyết định theo TU_NGAY.
+# Trước ngày 01/07/2025 dùng địa chỉ hành chính cũ. Đúng ngày 01/07/2025
+# và sau đó dùng địa chỉ hiện tại trong khu vực Phường Nam Nha Trang.
+COMPANY_ADDRESS_CUTOFF = date(2025, 7, 1)
+COMPANY_ADDRESS_BEFORE_CUTOFF = (
+    "Lô L23-34 Khu đô thị An Bình Tân, Phường Phước Long, "
+    "TP Nha Trang, Tỉnh Khánh Hòa."
+)
+COMPANY_ADDRESS_FROM_CUTOFF = (
+    "Lô L23-34 Khu đô thị An Bình Tân, Phường Nam Nha Trang, "
+    "Tỉnh Khánh Hòa."
+)
+COMPANY_ADDRESS_PLACEHOLDER = "{{DIA_CHI_BEN_A}}"
 
 SHEET_NAME = "NHAN_SU_HDLD"
 
 EXPECTED_COLUMNS = [
     "CHON", "STT", "MA_NV", "HO_TEN", "NGAY_SINH", "GIOI_TINH", "DAN_TOC",
-    "DIA_CHI_THUONG_TRU", "CCCD", "NGAY_CAP_CCCD", "NOI_CAP_CCCD", "MA_SO_THUE",
+    "DIA_CHI_THUONG_TRU", "CCCD", "NGAY_CAP_CCCD", "NOI_CAP_CCCD",
     "DIEN_THOAI", "CHUC_DANH", "LOAI_HOP_DONG", "THOI_HAN_THANG", "TU_NGAY",
     "DEN_NGAY", "MUC_LUONG_CHINH", "SO_HOP_DONG"
 ]
+# Giữ tương thích với các file Excel cũ. Hai cột này có thể có hoặc không;
+# SO_HOP_DONG_1_NAM không còn được Tool dùng để tự sinh thêm hợp đồng.
+OPTIONAL_EXCEL_COLUMNS = ("MA_SO_THUE", "SO_HOP_DONG_1_NAM")
 
 REQUIRED_FIELDS = [
     "STT", "MA_NV", "HO_TEN", "NGAY_SINH", "GIOI_TINH",
@@ -98,6 +121,10 @@ PLACEHOLDER_MAP = {
     "{{LUONG}}": "MUC_LUONG_CHINH",
 }
 
+# Template mới đã chủ động bỏ thông tin MST và số điện thoại của Bên B.
+# Excel vẫn được phép giữ hai cột này để tương thích dữ liệu cũ.
+OPTIONAL_PLACEHOLDERS = {"{{MST}}", "{{SDT}}"}
+
 # Hien thi theo dung thu tu du lieu trong Excel. Cot CHON duoc thay bang
 # checkbox "CHON IN" tren giao dien; TRANG_THAI la cot bo sung cua Tool.
 TABLE_COLUMNS = [
@@ -111,7 +138,6 @@ TABLE_COLUMNS = [
     ("CCCD", "CCCD"),
     ("NGAY_CAP_CCCD", "Ngày cấp CCCD"),
     ("NOI_CAP_CCCD", "Nơi cấp CCCD"),
-    ("MA_SO_THUE", "Mã số thuế"),
     ("DIEN_THOAI", "Điện thoại"),
     ("CHUC_DANH", "Chức danh"),
     ("LOAI_HOP_DONG", "Loại HĐ"),
@@ -178,6 +204,16 @@ def text_value(value: Any) -> str:
     return str(value).strip()
 
 
+def format_contract_duration(value: Any) -> str:
+    """Giữ đơn vị đã nhập; chỉ thêm 'tháng' khi Excel chỉ có số."""
+    duration = re.sub(r"\s+", " ", text_value(value)).strip()
+    if not duration:
+        return ""
+    if re.fullmatch(r"\d+(?:[.,]\d+)?", duration):
+        return f"{duration} tháng"
+    return duration
+
+
 def is_indefinite_contract(value: Any) -> bool:
     """Recognize 'hợp đồng không xác định thời hạn' regardless of accents/case."""
     normalized = unicodedata.normalize("NFD", text_value(value))
@@ -188,23 +224,106 @@ def is_indefinite_contract(value: Any) -> bool:
     return "khong xac dinh thoi han" in normalized
 
 
-def format_date(value: Any) -> str:
+def contract_employee_variants(emp: Employee) -> List[Employee]:
+    """Mỗi dòng Excel là đúng một hợp đồng; không tự suy diễn thêm hợp đồng."""
+    return [emp]
+
+
+def expand_contract_employees(employees: List[Employee]) -> List[Employee]:
+    contracts: List[Employee] = []
+    for emp in employees:
+        contracts.extend(contract_employee_variants(emp))
+    return contracts
+
+
+def contract_count_for_employee(emp: Employee) -> int:
+    return 1
+
+
+def expected_contract_count(employees: List[Employee]) -> int:
+    return len(employees)
+
+
+def safe_batch_ranges(
+    employees: List[Employee],
+    max_employees: int,
+    copies: int,
+) -> List[Tuple[int, int, int]]:
+    """Return contiguous safe batches as (start, end, contract_count)."""
+    if not employees:
+        return []
+    max_employees = max(1, min(int(max_employees), MAX_BATCH_SIZE))
+    copies = max(1, int(copies))
+    max_contracts = max(
+        1,
+        MAX_PRINT_JOB_PAGES // (ESTIMATED_PAGES_PER_CONTRACT * copies),
+    )
+    ranges: List[Tuple[int, int, int]] = []
+    start = 0
+    employee_count = 0
+    contract_count = 0
+    for index, emp in enumerate(employees):
+        cost = contract_count_for_employee(emp)
+        if (
+            index > start
+            and (
+                employee_count >= max_employees
+                or contract_count + cost > max_contracts
+            )
+        ):
+            ranges.append((start, index, contract_count))
+            start = index
+            employee_count = 0
+            contract_count = 0
+        employee_count += 1
+        contract_count += cost
+    ranges.append((start, len(employees), contract_count))
+    return ranges
+
+
+def parse_date_value(value: Any) -> Optional[date]:
+    """Parse Excel/date text consistently for display and business rules."""
     if value in (None, ""):
-        return ""
+        return None
     if isinstance(value, datetime):
-        return value.strftime("%d/%m/%Y")
+        return value.date()
     if isinstance(value, date):
-        return value.strftime("%d/%m/%Y")
+        return value
     if isinstance(value, (int, float)):
-        # openpyxl normally converts actual Excel dates to datetime when format is date.
-        return text_value(value)
+        return None
     s = str(value).strip()
     for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%Y/%m/%d"):
         try:
-            return datetime.strptime(s, fmt).strftime("%d/%m/%Y")
+            return datetime.strptime(s, fmt).date()
         except ValueError:
             pass
+    return None
+
+
+def format_date(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    parsed = parse_date_value(value)
+    if parsed is not None:
+        return parsed.strftime("%d/%m/%Y")
+    # openpyxl normally converts actual Excel dates to datetime when format is date.
+    # Keep an unrecognized value visible so Excel validation/error messages remain useful.
+    if isinstance(value, (int, float)):
+        return text_value(value)
+    s = str(value).strip()
     return s
+
+
+def company_address_for_employee(emp: Employee) -> str:
+    start_date = parse_date_value(emp.data.get("TU_NGAY"))
+    if start_date is None:
+        raise ValueError(
+            f"TU_NGAY không hợp lệ tại dòng Excel {emp.row_number}: "
+            f"{text_value(emp.data.get('TU_NGAY'))}"
+        )
+    if start_date < COMPANY_ADDRESS_CUTOFF:
+        return COMPANY_ADDRESS_BEFORE_CUTOFF
+    return COMPANY_ADDRESS_FROM_CUTOFF
 
 
 def format_money(value: Any) -> str:
@@ -250,7 +369,20 @@ def sanitize_filename(text: str) -> str:
 
 
 def employee_filename(emp: Employee, ext: str) -> str:
-    return f"{emp.stt:03d}_{sanitize_filename(emp.ma_nv)}_{sanitize_filename(emp.ho_ten)}.{ext}"
+    # Khi cùng một MA_NV có nhiều hàng hợp đồng, read_employees gắn hậu tố
+    # số dòng Excel để các file không ghi đè nhau.
+    suffix = text_value(emp.data.get("_FILE_ROW_SUFFIX"))
+    return (
+        f"{emp.stt:03d}_{sanitize_filename(emp.ma_nv)}_"
+        f"{sanitize_filename(emp.ho_ten)}{suffix}.{ext}"
+    )
+
+
+def expected_contract_paths(emp: Employee, folder: Path, ext: str) -> List[Path]:
+    return [
+        folder / employee_filename(contract, ext)
+        for contract in contract_employee_variants(emp)
+    ]
 
 
 def validate_employee_batch(employees: List[Employee], max_size: int = MAX_BATCH_SIZE) -> None:
@@ -261,27 +393,9 @@ def validate_employee_batch(employees: List[Employee], max_size: int = MAX_BATCH
             f"Đã tick {len(employees)} nhân viên, vượt giới hạn an toàn {max_size} nhân viên/lô."
         )
 
-    checks = (
-        ("STT", lambda emp: str(emp.stt), "STT"),
-        ("MA_NV", lambda emp: emp.ma_nv.casefold(), "Mã nhân viên"),
-    )
-    for _, getter, label in checks:
-        seen: Dict[str, Employee] = {}
-        duplicates: List[str] = []
-        for emp in employees:
-            value = getter(emp).strip()
-            if not value:
-                continue
-            previous = seen.get(value)
-            if previous is not None:
-                duplicates.append(
-                    f"- {label} {text_value(emp.data.get('STT') if label == 'STT' else emp.ma_nv)}: "
-                    f"dòng Excel {previous.row_number} và {emp.row_number}"
-                )
-            else:
-                seen[value] = emp
-        if duplicates:
-            problems.append(f"{label} bị trùng:\n" + "\n".join(duplicates[:20]))
+    # Cho phép trùng STT, MA_NV và SO_HOP_DONG: một nhân viên có thể được nhập
+    # thành nhiều dòng, mỗi dòng là một hợp đồng riêng. Tên file được bảo vệ
+    # bằng hậu tố dòng Excel khi MA_NV xuất hiện nhiều lần.
 
     if problems:
         raise ValueError(
@@ -296,7 +410,7 @@ def validate_output_targets(employees: List[Employee], word_dir: Path, pdf_dir: 
     existing_files: List[str] = []
     seen_pdf_names: Dict[str, Employee] = {}
 
-    for emp in employees:
+    for emp in expand_contract_employees(employees):
         pdf_name = employee_filename(emp, "pdf")
         key = pdf_name.casefold()
         previous = seen_pdf_names.get(key)
@@ -348,12 +462,24 @@ def read_employees(excel_path: Path) -> List[Employee]:
         if missing_cols:
             raise ValueError("Excel thieu cot: " + ", ".join(missing_cols))
         idx = {name: headers.index(name) for name in EXPECTED_COLUMNS}
+        optional_idx = {
+            name: headers.index(name)
+            for name in OPTIONAL_EXCEL_COLUMNS
+            if name in headers
+        }
 
         employees: List[Employee] = []
         for row_no, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             if not any(v not in (None, "") for v in row):
                 continue
             data = {col: row[idx[col]] if idx[col] < len(row) else None for col in EXPECTED_COLUMNS}
+            for col in OPTIONAL_EXCEL_COLUMNS:
+                column_index = optional_idx.get(col)
+                data[col] = (
+                    row[column_index]
+                    if column_index is not None and column_index < len(row)
+                    else None
+                )
             emp = Employee(
                 row_number=row_no,
                 data=data,
@@ -371,28 +497,19 @@ def read_employees(excel_path: Path) -> List[Employee]:
                 emp.error = "STT khong hop le"
             employees.append(emp)
 
-        duplicate_checks = (
-            ("STT", lambda emp: str(emp.stt) if emp.stt > 0 else ""),
-            ("MA_NV", lambda emp: emp.ma_nv.casefold()),
-        )
-        for label, getter in duplicate_checks:
-            grouped: Dict[str, List[Employee]] = {}
-            for emp in employees:
-                value = getter(emp).strip()
-                if value:
-                    grouped.setdefault(value, []).append(emp)
-            for group in grouped.values():
-                if len(group) < 2:
-                    continue
-                display_value = group[0].stt if label == "STT" else group[0].ma_nv
-                for emp in group:
-                    duplicate_error = f"Trùng {label}: {display_value}"
-                    emp.valid = False
-                    emp.error = (
-                        emp.error + "; " + duplicate_error
-                        if emp.error else duplicate_error
-                    )
-        employees.sort(key=lambda e: (e.stt, e.ma_nv))
+        # Một nhân viên được phép có nhiều hàng hợp đồng. Chỉ các MA_NV xuất
+        # hiện nhiều lần mới cần hậu tố dòng Excel để tạo tên file riêng biệt.
+        by_employee_code: Dict[str, List[Employee]] = {}
+        for emp in employees:
+            if emp.ma_nv:
+                by_employee_code.setdefault(emp.ma_nv.casefold(), []).append(emp)
+        for group in by_employee_code.values():
+            if len(group) < 2:
+                continue
+            for emp in group:
+                emp.data["_FILE_ROW_SUFFIX"] = f"_R{emp.row_number:04d}"
+
+        employees.sort(key=lambda e: (e.stt, e.ma_nv, e.row_number))
         return employees
     finally:
         wb.close()
@@ -400,22 +517,11 @@ def read_employees(excel_path: Path) -> List[Employee]:
 
 def replacement_values(emp: Employee) -> Dict[str, str]:
     d = emp.data
-    start_date = d.get("TU_NGAY")
-    parsed_start_date: Optional[date] = None
-    if isinstance(start_date, datetime):
-        parsed_start_date = start_date.date()
-    elif isinstance(start_date, date):
-        parsed_start_date = start_date
-    elif start_date not in (None, ""):
-        raw_date = str(start_date).strip()
-        for pattern in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
-            try:
-                parsed_start_date = datetime.strptime(raw_date, pattern).date()
-                break
-            except ValueError:
-                continue
+    parsed_start_date = parse_date_value(d.get("TU_NGAY"))
     return {
-        "{{TEN}}": text_value(d.get("HO_TEN")),
+        # Tên người lao động trên thân hợp đồng và phần ký tên phải in hoa,
+        # đồng nhất với cách trình bày tên Giám đốc.
+        "{{TEN}}": text_value(d.get("HO_TEN")).upper(),
         "{{XUNGHO}}": salutation_from_gender(d.get("GIOI_TINH")),
         "{{NS}}": format_date(d.get("NGAY_SINH")),
         "{{GT}}": text_value(d.get("GIOI_TINH")),
@@ -450,16 +556,19 @@ def sha256_file(path: Path) -> str:
 def build_print_job_key(employees: List[Employee], template_path: Path,
                         copies: int, duplex: bool) -> str:
     payload = {
+        "format_version": PRINT_JOB_FORMAT_VERSION,
         "template_sha256": sha256_file(template_path),
         "copies": int(copies),
         "duplex": bool(duplex),
         "employees": [
             {
+                "excel_row": emp.row_number,
                 "stt": emp.stt,
                 "ma_nv": emp.ma_nv,
                 "values": replacement_values(emp),
+                "company_address": company_address_for_employee(emp),
             }
-            for emp in employees
+            for emp in expand_contract_employees(employees)
         ],
     }
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -541,6 +650,11 @@ def replace_token_in_paragraph(paragraph, token: str, value: str) -> bool:
     if token not in full:
         return False
 
+    # Vùng dữ liệu đã đúng thì không cần thay. Nếu vẫn chạy vòng lặp bên dưới
+    # với token == value, token sẽ không bao giờ biến mất và worker bị hold.
+    if token == value:
+        return True
+
     changed = False
     while token in full:
         start = full.index(token)
@@ -578,10 +692,131 @@ def replace_token_in_paragraph(paragraph, token: str, value: str) -> bool:
     return changed
 
 
+def replace_company_address_in_paragraph(paragraph, address: str) -> bool:
+    """Fill the Bên A address slot while leaving the employee address untouched."""
+    full_text = "".join(run.text for run in paragraph.runs)
+    if not re.match(r"^\s*Địa chỉ\s*(?:\t|\s)*:", full_text, re.IGNORECASE):
+        return False
+
+    changed = False
+    for source in (
+        COMPANY_ADDRESS_PLACEHOLDER,
+        COMPANY_ADDRESS_BEFORE_CUTOFF,
+        COMPANY_ADDRESS_FROM_CUTOFF,
+    ):
+        if replace_token_in_paragraph(paragraph, source, address):
+            changed = True
+            break
+
+    # Template hiện tại dùng một dải dấu chấm thay vì placeholder.
+    if not changed:
+        dotted_slot = re.search(r":(\s*\.{5,}\s*)$", full_text)
+        if dotted_slot:
+            changed = replace_token_in_paragraph(
+                paragraph, dotted_slot.group(1), f" {address}"
+            )
+    if not changed:
+        return False
+
+    # Chỉ định dạng phần giá trị. Giữ khoảng trắng bình thường để Word
+    # không giãn chữ bất thường khi căn đều hai lề.
+    for run in paragraph.runs:
+        if address[:12] in run.text or (
+            ":" in run.text and "Lô L23-34" in run.text
+        ):
+            run.font.name = "Times New Roman"
+            # Giữ cùng cỡ chữ 12 với nội dung hợp đồng. Word sẽ tự xuống dòng
+            # theo chiều rộng của mẫu, giữ nguyên căn lề của dòng Địa chỉ.
+            run.font.size = Pt(12)
+    return True
+
+
+def normalize_employee_address_layout_in_paragraph(paragraph) -> bool:
+    """Give Bên B's permanent address the same hanging indent as Bên A."""
+    full_text = "".join(run.text for run in paragraph.runs)
+    if not re.match(
+        r"^\s*Địa chỉ thường trú\s*(?:\t|\s)*:",
+        full_text,
+        re.IGNORECASE,
+    ):
+        return False
+
+    # Mẫu Bên A dùng lề trái 108 pt và dòng đầu treo -108 pt. Sao chép
+    # đúng hình học này để địa chỉ dài của Bên B xuống dòng dưới phần giá
+    # trị sau dấu hai chấm, thay vì quay về sát lề trái của nhãn.
+    paragraph.paragraph_format.left_indent = Pt(108)
+    paragraph.paragraph_format.first_line_indent = Pt(-108)
+    return True
+
+
+def identity_label_for_employee(emp: Employee) -> str:
+    """Chọn nhãn giấy tờ theo năm cấp đúng quy tắc nghiệp vụ đã cấu hình."""
+    issued_date = parse_date_value(emp.data.get("NGAY_CAP_CCCD"))
+    if issued_date is None:
+        raise ValueError(
+            f"NGAY_CAP_CCCD không hợp lệ tại dòng Excel {emp.row_number}: "
+            f"{text_value(emp.data.get('NGAY_CAP_CCCD'))}"
+        )
+    # Trước năm 2017 dùng CMND; từ năm 2017 trở đi dùng CCCD.
+    return "Số CCCD" if issued_date.year >= 2017 else "Số CMND"
+
+
+def normalize_identity_label_in_paragraph(paragraph, desired_label: str) -> bool:
+    """Đổi nhãn CMND/CCCD theo năm cấp, giữ nguyên bố cục và giá trị số."""
+    full_text = "".join(run.text for run in paragraph.runs)
+
+    # Chấp nhận mọi nhãn của mẫu hiện tại và thay đúng phần nhãn, không chạm
+    # tới placeholder/giá trị CCCD nằm sau dấu hai chấm.
+    explicit_label = re.match(
+        r"^(\s*)Số\s+(?:CMND/CCCD|CMND|CCCD)(?=\s|\t|:)",
+        full_text,
+        re.IGNORECASE,
+    )
+    if explicit_label:
+        source = explicit_label.group(0)
+        replacement = explicit_label.group(1) + desired_label
+        replace_token_in_paragraph(paragraph, source, replacement)
+        return True
+
+    # Mẫu cũ dùng dải dấu chấm; trường hợp này vẫn chuẩn hóa thành nhãn đầy đủ.
+    legacy_label = re.match(
+        r"^\s*Số\s*\.{3,}(?=\s|\t|:)",
+        full_text,
+        re.IGNORECASE,
+    )
+    if not legacy_label:
+        return False
+    source = legacy_label.group(0)
+    replacement = (" " * (len(source) - len(source.lstrip()))) + desired_label
+    replace_token_in_paragraph(paragraph, source, replacement)
+    return True
+
+
+def replace_employee_phone_in_paragraph(paragraph, phone: str) -> bool:
+    """Fill the dotted employee phone slot from Excel column DIEN_THOAI."""
+    full_text = "".join(run.text for run in paragraph.runs)
+    if not re.match(r"^\s*Số điện thoại\s*(?:\t|\s)*:", full_text, re.IGNORECASE):
+        return False
+    if "{{SDT}}" in full_text:
+        return replace_token_in_paragraph(paragraph, "{{SDT}}", phone)
+    dotted_slot = re.search(r":(\s*\.{3,}\s*)$", full_text)
+    if dotted_slot:
+        return replace_token_in_paragraph(
+            paragraph, dotted_slot.group(1), f" {phone}"
+        )
+    return phone in full_text
+
+
 def create_contract_docx(template_path: Path, emp: Employee, output_docx: Path) -> None:
     doc = Document(template_path)
     values = replacement_values(emp)
+    company_address = company_address_for_employee(emp)
+    identity_label = identity_label_for_employee(emp)
+    employee_phone = text_value(emp.data.get("DIEN_THOAI"))
     found = {token: False for token in PLACEHOLDER_MAP}
+    company_address_found = False
+    identity_label_found = False
+    phone_field_found = False
     literal_replacements = {
         "ÔNG/BÀ": (values["{{XUNGHO}}"], "Cách xưng hô theo giới tính"),
         "Số: ......./202..../HĐLĐ-TLNT": (
@@ -596,6 +831,15 @@ def create_contract_docx(template_path: Path, emp: Employee, output_docx: Path) 
     }
     literal_found = {source: False for source in literal_replacements}
     for paragraph in iter_all_paragraphs(doc):
+        normalize_employee_address_layout_in_paragraph(paragraph)
+        if normalize_identity_label_in_paragraph(paragraph, identity_label):
+            identity_label_found = True
+        if replace_company_address_in_paragraph(paragraph, company_address):
+            company_address_found = True
+        if employee_phone and replace_employee_phone_in_paragraph(
+            paragraph, employee_phone
+        ):
+            phone_field_found = True
         if is_indefinite_contract(emp.data.get("LOAI_HOP_DONG")):
             # Hợp đồng không xác định thời hạn chỉ có ngày bắt đầu; không đọc
             # THOI_HAN_THANG hoặc DEN_NGAY và không để lại dấu câu thừa.
@@ -603,6 +847,13 @@ def create_contract_docx(template_path: Path, emp: Employee, output_docx: Path) 
             if replace_token_in_paragraph(paragraph, indefinite_term, "từ ngày {{TUNGAY}}"):
                 found["{{THANG}}"] = True
                 found["{{DENNGAY}}"] = True
+        else:
+            # Template có sẵn hậu tố "tháng". Thay cả cụm để không tạo ra
+            # "1 năm tháng" khi Excel đã nhập thời hạn kèm đơn vị.
+            fixed_term = "{{THANG}} tháng"
+            duration = format_contract_duration(emp.data.get("THOI_HAN_THANG"))
+            if replace_token_in_paragraph(paragraph, fixed_term, duration):
+                found["{{THANG}}"] = True
         # Mẫu Word gốc được giữ nguyên. Hai vùng dấu chấm được thay trực tiếp
         # trong bản DOCX sinh ra, không cần sửa/chèn placeholder vào template.
         for source, (replacement, _label) in literal_replacements.items():
@@ -617,12 +868,22 @@ def create_contract_docx(template_path: Path, emp: Employee, output_docx: Path) 
             if run.font.highlight_color is not None:
                 run.font.highlight_color = None
 
-    missing_tokens = [token for token, ok in found.items() if not ok]
+    missing_tokens = [
+        token
+        for token, ok in found.items()
+        if not ok and token not in OPTIONAL_PLACEHOLDERS
+    ]
     missing_literals = [
         label
         for source, (_replacement, label) in literal_replacements.items()
         if not literal_found[source]
     ]
+    if not company_address_found:
+        missing_literals.append("Địa chỉ Bên A")
+    if not identity_label_found:
+        missing_literals.append("Nhãn Số CCCD / Số CMND/CCCD")
+    if employee_phone and not (phone_field_found or found["{{SDT}}"]):
+        missing_literals.append("Số điện thoại người lao động")
     if missing_tokens or missing_literals:
         details = []
         if missing_tokens:
@@ -1039,6 +1300,7 @@ def generate_contracts_word_com(employees: List[Employee], template_path: Path,
     word_dir.mkdir(parents=True, exist_ok=True)
     pdf_dir.mkdir(parents=True, exist_ok=True)
     validate_output_targets(employees, word_dir, pdf_dir)
+    contract_employees = expand_contract_employees(employees)
 
     word = None
     keeper_doc = None
@@ -1054,9 +1316,9 @@ def generate_contracts_word_com(employees: List[Employee], template_path: Path,
         # cuoi cung bi dong. Giu mot document trong nen de phien COM con song
         # trong suot ca lo; neu khong, nhan vien thu hai se loi RPC failed.
         keeper_doc = word.Documents.Add()
-        total = len(employees)
+        total = len(contract_employees)
 
-        for i, emp in enumerate(employees, start=1):
+        for i, emp in enumerate(contract_employees, start=1):
             out_docx = word_dir / employee_filename(emp, "docx")
             out_pdf = pdf_dir / employee_filename(emp, "pdf")
 
@@ -1108,7 +1370,7 @@ def generate_contracts_word_com(employees: List[Employee], template_path: Path,
 
                 # V7: co dinh ten Giam doc trong cung paragraph chu ky va ep kho giay A4.
                 _word_force_a4(doc)
-                _word_fix_signature_layout(doc, emp.ho_ten)
+                _word_fix_signature_layout(doc, emp.ho_ten.upper())
 
                 doc.Save()
                 doc.ExportAsFixedFormat(
@@ -1256,7 +1518,14 @@ def _pdf_page_is_trailing_blank(page) -> bool:
         r"^(?:(?:trang|page)\s*)?(?:[-–—]\s*)?\d+(?:\s*/\s*\d+)?(?:\s*[-–—])?$",
         re.IGNORECASE,
     )
-    if any(not page_number_only.fullmatch(line) for line in lines):
+    # Một số bản template có đoạn chấm dành cho chữ ký bị trôi sang trang 5.
+    # Nếu trang cuối chỉ có số trang và dấu chấm/gạch trống, vẫn xem là trang
+    # trắng kỹ thuật; trang có chữ, ảnh, form hoặc annotation tuyệt đối giữ lại.
+    filler_only = re.compile(r"^[.\u2026_·\s-]{3,}$")
+    if any(
+        not page_number_only.fullmatch(line) and not filler_only.fullmatch(line)
+        for line in lines
+    ):
         return False
 
     # Never remove pages containing images/forms or interactive annotations.
@@ -1486,8 +1755,10 @@ class GenerationWorker(QThread):
 
             # Non-Windows fallback is only for development/QA. Production uses Word COM.
             docx_files: List[Path] = []
-            total = len(self.employees)
-            for i, emp in enumerate(self.employees, start=1):
+            contract_employees = expand_contract_employees(self.employees)
+            validate_output_targets(self.employees, word_dir, pdf_dir)
+            total = len(contract_employees)
+            for i, emp in enumerate(contract_employees, start=1):
                 self.progress.emit(i, total, f"Dang tao Word {i}/{total}: {emp.ho_ten}")
                 out_docx = word_dir / employee_filename(emp, "docx")
                 create_contract_docx(self.template, emp, out_docx)
@@ -1876,28 +2147,35 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def employee_key(emp: Employee) -> Tuple[int, str]:
-        return emp.stt, emp.ma_nv.casefold()
+        # Hai dòng Excel có thể cùng STT/MA_NV nhưng là hai hợp đồng khác nhau.
+        return emp.row_number, emp.ma_nv.casefold()
 
-    def generated_pdf_map(self) -> Dict[Tuple[int, str], Path]:
-        return {
-            self.employee_key(emp): pdf
-            for emp, pdf in zip(self.generated_employees, self.generated_pdfs)
+    def generated_pdf_map(self) -> Dict[Tuple[int, str], List[Path]]:
+        pdf_dir = self.output_dir() / "PDF"
+        available = {
+            pdf.resolve()
+            for pdf in self.generated_pdfs
             if pdf.exists()
         }
+        result: Dict[Tuple[int, str], List[Path]] = {}
+        for emp in self.generated_employees:
+            expected = expected_contract_paths(emp, pdf_dir, "pdf")
+            if expected and all(path.resolve() in available for path in expected):
+                result[self.employee_key(emp)] = expected
+        return result
 
     def pdfs_for_employees(self, employees: List[Employee]) -> List[Path]:
         pdf_map = self.generated_pdf_map()
-        return [
-            pdf_map[self.employee_key(emp)]
-            for emp in employees
-            if self.employee_key(emp) in pdf_map
-        ]
+        pdfs: List[Path] = []
+        for emp in employees:
+            pdfs.extend(pdf_map.get(self.employee_key(emp), []))
+        return pdfs
 
     def selection_has_generated_pdfs(self) -> bool:
         selected = self.selected_employees()
         if not selected or any(not emp.valid for emp in selected):
             return False
-        return len(self.pdfs_for_employees(selected)) == len(selected)
+        return len(self.pdfs_for_employees(selected)) == expected_contract_count(selected)
 
     def restore_existing_generated_pdfs(self, excel_path: Path) -> None:
         """Restore fresh Tool outputs after restart so tick selection remains printable."""
@@ -1916,20 +2194,27 @@ class MainWindow(QMainWindow):
         for emp in self.employees:
             if not emp.valid:
                 continue
-            pdf = pdf_dir / employee_filename(emp, "pdf")
-            docx = word_dir / employee_filename(emp, "docx")
             try:
-                if not pdf.is_file() or not docx.is_file():
+                pdfs = expected_contract_paths(emp, pdf_dir, "pdf")
+                docx_files = expected_contract_paths(emp, word_dir, "docx")
+            except Exception:
+                continue
+            try:
+                if not all(pdf.is_file() for pdf in pdfs):
                     continue
-                if min(pdf.stat().st_mtime, docx.stat().st_mtime) < freshness_cutoff:
+                if not all(docx.is_file() for docx in docx_files):
                     continue
-                reader = PdfReader(str(pdf))
-                if reader.is_encrypted or len(reader.pages) == 0:
+                generated_files = pdfs + docx_files
+                if min(path.stat().st_mtime for path in generated_files) < freshness_cutoff:
                     continue
+                for pdf in pdfs:
+                    reader = PdfReader(str(pdf))
+                    if reader.is_encrypted or len(reader.pages) == 0:
+                        raise ValueError(f"PDF không hợp lệ: {pdf.name}")
             except Exception:
                 continue
             restored_employees.append(emp)
-            restored_pdfs.append(pdf)
+            restored_pdfs.extend(pdfs)
 
         if restored_pdfs:
             self.generated_employees = restored_employees
@@ -1937,7 +2222,7 @@ class MainWindow(QMainWindow):
             self.generated_template_path = template
             self.generation_ready = True
             self.log(
-                f"Đã khôi phục {len(restored_pdfs)} PDF nhân viên còn mới trong OUTPUT; "
+                f"Đã khôi phục {len(restored_pdfs)} PDF hợp đồng còn mới trong OUTPUT; "
                 "có thể tick để tạo lô in."
             )
 
@@ -1945,18 +2230,20 @@ class MainWindow(QMainWindow):
         current = max(self.batch_combo.currentIndex(), 0)
         batch_size = self.batch_size_spin.value()
         total = len(self.employees)
-        batch_count = (total + batch_size - 1) // batch_size if total else 0
+        copies = max(self.copies_spin.value(), 1)
+        ranges = safe_batch_ranges(self.employees, batch_size, copies)
+        batch_count = len(ranges)
         self.batch_combo.blockSignals(True)
         try:
             self.batch_combo.clear()
-            for batch_index in range(batch_count):
-                start = batch_index * batch_size
-                end = min(start + batch_size, total)
+            for batch_index, (start, end, contracts) in enumerate(ranges):
                 first_stt = self.employees[start].stt
                 last_stt = self.employees[end - 1].stt
+                projected_pages = contracts * ESTIMATED_PAGES_PER_CONTRACT * copies
                 self.batch_combo.addItem(
                     f"Lô {batch_index + 1}/{batch_count} | dòng {start + 1}-{end} "
-                    f"| STT {first_stt:03d}-{last_stt:03d}",
+                    f"| STT {first_stt:03d}-{last_stt:03d} | {end - start} NV "
+                    f"| {contracts} HĐ | ~{projected_pages} trang",
                     (start, end),
                 )
             if batch_count:
@@ -2015,8 +2302,10 @@ class MainWindow(QMainWindow):
         label = self.current_batch_label()
         selected = self.selected_employees()
         if selected:
+            contracts = expected_contract_count(selected)
             self.batch_status.setText(
-                f"{label}: {selected[0].ma_nv} → {selected[-1].ma_nv}"
+                f"{label}: {selected[0].ma_nv} → {selected[-1].ma_nv} "
+                f"| {len(selected)} NV | {contracts} HĐ"
             )
         else:
             self.batch_status.setText("Chưa chọn nhân viên")
@@ -2027,6 +2316,7 @@ class MainWindow(QMainWindow):
         invalid = len(selected) - valid
         self.summary.setText(
             f"Tổng Excel: {len(self.employees)} | Đã tick: {len(selected)} nhân viên "
+            f"| Số HĐ sẽ sinh: {expected_contract_count(selected)} "
             f"| Hợp lệ: {valid} | Lỗi: {invalid}"
         )
 
@@ -2074,11 +2364,16 @@ class MainWindow(QMainWindow):
             self.status.setText("Đã đổi số bản/chế độ in - cần tạo lại PDF tổng")
             self.log("Thiết lập in đã thay đổi; PDF tổng cũ bị khóa để tránh in sai số bản.")
         copies = max(self.copies_spin.value(), 1)
-        recommended = max(1, min(MAX_BATCH_SIZE, MAX_PRINT_JOB_PAGES // (4 * copies)))
+        max_contracts = max(
+            1,
+            MAX_PRINT_JOB_PAGES // (ESTIMATED_PAGES_PER_CONTRACT * copies),
+        )
         self.print_safety_label.setText(
             f"Giới hạn {MAX_PRINT_JOB_PAGES} trang/lệnh. Với {copies} bản/người: "
-            f"khuyến nghị tối đa {recommended} nhân viên/lô."
+            f"tối đa khoảng {max_contracts} dòng hợp đồng/lô."
         )
+        if self.employees:
+            self.rebuild_batch_selector()
         self.refresh_action_states()
 
     def on_table_item_changed(self, item: QTableWidgetItem):
@@ -2091,16 +2386,47 @@ class MainWindow(QMainWindow):
         if self.employees[row].selected == selected:
             return
         self.employees[row].selected = selected
+        if selected:
+            projected_contracts = expected_contract_count(self.selected_employees())
+            projected_pages = (
+                projected_contracts
+                * ESTIMATED_PAGES_PER_CONTRACT
+                * max(self.copies_spin.value(), 1)
+            )
+            if projected_pages > MAX_PRINT_JOB_PAGES:
+                self.employees[row].selected = False
+                self.render_table()
+                QMessageBox.warning(
+                    self, "Lô vượt giới hạn an toàn",
+                    f"Nếu chọn thêm nhân viên này, lô dự kiến có {projected_contracts} hợp đồng "
+                    f"và khoảng {projected_pages} trang, vượt giới hạn "
+                    f"{MAX_PRINT_JOB_PAGES} trang/lệnh.\n\n"
+                    "Hãy áp dụng lô kế tiếp hoặc bỏ bớt nhân viên."
+                )
+                self.update_selection_summary()
+                self.update_batch_status()
+                return
         self.invalidate_master_for_selection("Đã thay đổi danh sách nhân viên được tick.")
         self.update_selection_summary()
         self.update_batch_status()
 
     def set_all_employee_selection(self, selected: bool):
-        if selected and len(self.employees) > MAX_BATCH_SIZE:
+        projected_contracts = expected_contract_count(self.employees) if selected else 0
+        projected_pages = (
+            projected_contracts
+            * ESTIMATED_PAGES_PER_CONTRACT
+            * max(self.copies_spin.value(), 1)
+        )
+        if selected and (
+            len(self.employees) > MAX_BATCH_SIZE
+            or projected_pages > MAX_PRINT_JOB_PAGES
+        ):
             QMessageBox.information(
                 self, "Giới hạn lô an toàn",
-                f"Danh sách có {len(self.employees)} nhân viên. Tool chỉ cho chọn tối đa "
-                f"{MAX_BATCH_SIZE} người/lô.\n\nĐã áp dụng lô đang chọn thay vì tick toàn bộ."
+                f"Danh sách có {len(self.employees)} nhân viên, {projected_contracts} hợp đồng "
+                f"và dự kiến {projected_pages} trang. Tool giới hạn "
+                f"{MAX_BATCH_SIZE} người và {MAX_PRINT_JOB_PAGES} trang/lô.\n\n"
+                "Đã áp dụng lô an toàn đang chọn thay vì tick toàn bộ."
             )
             self.apply_current_batch()
             return
@@ -2129,11 +2455,16 @@ class MainWindow(QMainWindow):
             control.setEnabled(not self.busy)
         self.btn_master.setEnabled(not self.busy and selection_ready)
         self.btn_open_master.setEnabled(not self.busy and ready_master)
-        # Keep IN clickable so the user receives an exact missing-step message.
-        # When employee PDFs are ready, clicking IN automatically creates master.
-        self.btn_print.setEnabled(not self.busy and not self.print_locked)
+        # Luôn cho bấm IN khi Tool không bận. Nếu lô bị khóa chống in trùng,
+        # print_master/verify_master_before_print sẽ dừng và báo đúng lý do;
+        # không vô hiệu hóa nút khiến người dùng tưởng Tool bị lỗi.
+        self.btn_print.setEnabled(not self.busy)
         self.btn_allow_reprint.setEnabled(not self.busy and ready_master and self.print_locked)
-        if ready_master:
+        if self.print_locked:
+            self.btn_print.setToolTip(
+                "Lô này đã từng gửi in. Bấm để xem cảnh báo; chỉ mở khóa khi chắc chắn cần in lại."
+            )
+        elif ready_master:
             self.btn_print.setToolTip("In đúng PDF tổng của các nhân viên hiện đang được tick.")
         elif selection_ready:
             self.btn_print.setToolTip("Tool sẽ tự tạo PDF tổng từ các nhân viên đã tick rồi xác nhận in.")
@@ -2211,28 +2542,35 @@ class MainWindow(QMainWindow):
         new_pdfs = [p for p in paths if p.suffix.lower() == ".pdf"]
         new_employees = list(self.pending_generation_employees)
         self.pending_generation_employees = []
-        if len(new_pdfs) == len(new_employees):
-            inventory: Dict[Tuple[int, str], Tuple[Employee, Path]] = {
-                self.employee_key(emp): (emp, pdf)
-                for emp, pdf in zip(self.generated_employees, self.generated_pdfs)
-                if pdf.exists()
+        expected_new = expected_contract_count(new_employees)
+        if len(new_pdfs) == expected_new:
+            inventory: Dict[Tuple[int, str], Employee] = {
+                self.employee_key(emp): emp
+                for emp in self.generated_employees
             }
-            for emp, pdf in zip(new_employees, new_pdfs):
-                inventory[self.employee_key(emp)] = (emp, pdf)
-            ordered = [
-                inventory[self.employee_key(emp)]
-                for emp in self.employees
-                if self.employee_key(emp) in inventory
-            ]
-            self.generated_employees = [emp for emp, _ in ordered]
-            self.generated_pdfs = [pdf for _, pdf in ordered]
+            for emp in new_employees:
+                inventory[self.employee_key(emp)] = emp
+
+            pdf_dir = self.output_dir() / "PDF"
+            ordered_employees: List[Employee] = []
+            ordered_pdfs: List[Path] = []
+            for emp in self.employees:
+                key = self.employee_key(emp)
+                if key not in inventory:
+                    continue
+                expected_pdfs = expected_contract_paths(emp, pdf_dir, "pdf")
+                if all(pdf.is_file() for pdf in expected_pdfs):
+                    ordered_employees.append(emp)
+                    ordered_pdfs.extend(expected_pdfs)
+            self.generated_employees = ordered_employees
+            self.generated_pdfs = ordered_pdfs
         else:
             self.generated_employees = []
             self.generated_pdfs = []
         self.generation_ready = bool(self.generated_pdfs)
         self.clear_master_state()
         self.log(
-            f"Đã sinh {len(paths)} file. PDF mới: {len(new_pdfs)} | "
+            f"Đã sinh {len(paths)} file. PDF hợp đồng mới: {len(new_pdfs)} | "
             f"PDF sẵn sàng: {len(self.generated_pdfs)}"
         )
         self.refresh_action_states()
@@ -2293,12 +2631,14 @@ class MainWindow(QMainWindow):
             )
             return
         pdfs = self.current_pdfs()
-        if len(pdfs) != len(selected):
+        expected_pdfs = expected_contract_count(selected)
+        if len(pdfs) != expected_pdfs:
             pdf_map = self.generated_pdf_map()
             missing = [
                 f"- {emp.ma_nv} {emp.ho_ten}"
                 for emp in selected
-                if self.employee_key(emp) not in pdf_map
+                if len(pdf_map.get(self.employee_key(emp), []))
+                != contract_count_for_employee(emp)
             ]
             QMessageBox.warning(
                 self, "Nhân viên chưa có PDF",
@@ -2320,13 +2660,22 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "PDF không hợp lệ", str(exc))
             return
         if projected_pages > MAX_PRINT_JOB_PAGES:
-            pages_per_employee = projected_pages / max(len(pdfs), 1)
-            recommended = max(1, int(MAX_PRINT_JOB_PAGES // max(pages_per_employee, 1)))
+            pages_per_contract = projected_pages / max(len(pdfs), 1)
+            max_contracts = max(
+                1,
+                int(MAX_PRINT_JOB_PAGES // max(pages_per_contract, 1)),
+            )
+            contracts_per_employee = len(pdfs) / max(len(selected), 1)
+            recommended = max(
+                1,
+                int(max_contracts // max(contracts_per_employee, 1)),
+            )
             QMessageBox.critical(
                 self, "Lô in quá lớn - đã dừng",
                 f"Lô này sẽ tạo {projected_pages} trang, vượt giới hạn an toàn "
                 f"{MAX_PRINT_JOB_PAGES} trang/lệnh.\n\n"
-                f"Với thiết lập hiện tại, hãy chọn tối đa {recommended} nhân viên/lô."
+                f"Với cơ cấu hợp đồng và thiết lập hiện tại, hãy chọn tối đa "
+                f"khoảng {recommended} nhân viên/lô."
             )
             return
         if not self.generated_template_path or not self.generated_template_path.exists():
@@ -2419,6 +2768,7 @@ class MainWindow(QMainWindow):
                 self, "PDF tổng đã tạo",
                 f"{self.master_batch_label}\n"
                 f"{len(self.master_employees)} nhân viên\n"
+                f"{expected_contract_count(self.master_employees)} hợp đồng\n"
                 f"{self.master_copies} bản/người\n"
                 f"Chế độ: {'2 mặt A4' if self.master_duplex else '1 mặt A4'}\n"
                 f"Tổng {pages} trang"
@@ -2521,8 +2871,8 @@ class MainWindow(QMainWindow):
         master_keys = [self.employee_key(emp) for emp in self.master_employees]
         if selected_keys != master_keys:
             raise RuntimeError("Danh sách tick đã thay đổi. Hãy tạo lại PDF tổng.")
-        if len(self.current_pdfs()) != len(self.master_employees):
-            raise RuntimeError("Thiếu PDF nhân viên trong lô. Tool dừng để tránh in thiếu.")
+        if len(self.current_pdfs()) != expected_contract_count(self.master_employees):
+            raise RuntimeError("Thiếu PDF hợp đồng trong lô. Tool dừng để tránh in thiếu.")
         validate_employee_batch(self.master_employees, MAX_BATCH_SIZE)
 
         actual_pages = len(PdfReader(str(self.master_pdf)).pages)
@@ -2658,7 +3008,8 @@ class MainWindow(QMainWindow):
                 detail + "\n\nTool chưa gửi bất kỳ trang nào. Hãy xử lý máy in rồi thử lại."
             )
             return
-        contracts = len(self.master_employees)
+        employees_count = len(self.master_employees)
+        contracts_count = expected_contract_count(self.master_employees)
         copies = self.master_copies
         duplex = self.master_duplex
         print_mode_text = "2 mặt A4 - lật cạnh dài" if duplex else "1 mặt A4"
@@ -2667,7 +3018,8 @@ class MainWindow(QMainWindow):
             self, "XÁC NHẬN IN",
             f"{self.master_batch_label}\n"
             f"Máy in: {printer}\n"
-            f"Số nhân viên: {contracts}\n"
+            f"Số nhân viên: {employees_count}\n"
+            f"Số hợp đồng: {contracts_count}\n"
             f"Số bản / người: {copies}\n"
             f"Chế độ in: {print_mode_text}\n"
             f"Tổng số trang: {self.master_pages}"
@@ -2684,7 +3036,7 @@ class MainWindow(QMainWindow):
             "status": "SENDING",
             "printer": printer,
             "batch": self.master_batch_label,
-            "contracts": contracts,
+            "contracts": contracts_count,
             "copies": copies,
             "pages": self.master_pages,
             "master_pdf": str(self.master_pdf),
@@ -2706,7 +3058,10 @@ class MainWindow(QMainWindow):
             print_pdf(self.master_pdf, printer, duplex=duplex)
             guard_record["status"] = "SENT"
             save_print_guard_record(self.output_dir(), self.master_job_key, guard_record)
-            write_print_log(self.output_dir(), printer, contracts, copies, self.master_pages, self.master_pdf, "SENT")
+            write_print_log(
+                self.output_dir(), printer, contracts_count, copies,
+                self.master_pages, self.master_pdf, "SENT"
+            )
             self.print_locked = True
             self.reprint_allowed_job_key = None
             self.log(f"Đã gửi lệnh in tới: {printer}")
@@ -2727,7 +3082,10 @@ class MainWindow(QMainWindow):
                 logging.exception("Khong cap nhat duoc print guard sau loi in")
             self.print_locked = True
             self.reprint_allowed_job_key = None
-            write_print_log(self.output_dir(), printer, contracts, copies, self.master_pages, self.master_pdf, "UNKNOWN", str(exc))
+            write_print_log(
+                self.output_dir(), printer, contracts_count, copies,
+                self.master_pages, self.master_pdf, "UNKNOWN", str(exc)
+            )
             self.log(str(exc))
             QMessageBox.critical(
                 self, "TRẠNG THÁI IN KHÔNG CHẮC CHẮN - ĐÃ KHÓA",
